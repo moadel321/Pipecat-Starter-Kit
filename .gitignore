@@ -1,0 +1,14 @@
+.cursor/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+patient-intake/.cursorrules
+patient-intake/.env
+
+delete-daily.py
+/bots/verify_key.py
+/bots/.env
+/bots/.cursorrules
+/bots/PIPECAT_INTEGRATION.MD

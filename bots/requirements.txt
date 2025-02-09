@@ -1,0 +1,6 @@
+python-dotenv
+fastapi[all]
+uvicorn
+pipecat-ai[daily,cartesia,openai,silero,gladia, assemblyai]
+pipecat-ai-flows
+aiohttp

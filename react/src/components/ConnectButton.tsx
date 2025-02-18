@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import {
   useRTVIClient,
   useRTVIClientTransportState,
+  VoiceVisualizer,
 } from '@pipecat-ai/client-react';
 import { useBotType } from '../providers/BotTypeProvider';
 
@@ -53,6 +54,16 @@ export function ConnectButton() {
 
   return (
     <div className="connect-button-container">
+      <div className="mic-visualizer">
+        <VoiceVisualizer
+          participantType="local"
+          backgroundColor="rgba(33, 150, 243, 0.1)"
+          barColor="#2196F3"
+          barWidth={4}
+          barGap={2}
+          barMaxHeight={30}
+        />
+      </div>
       <button 
         onClick={isConnected ? handleDisconnect : handleConnect}
         disabled={transportState === 'connecting' || transportState === 'authenticating'}

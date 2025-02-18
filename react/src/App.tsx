@@ -2,6 +2,7 @@ import {
   RTVIClientAudio,
   RTVIClientVideo,
   useRTVIClientTransportState,
+  VoiceVisualizer,
 } from '@pipecat-ai/client-react';
 import { RTVIProvider } from './providers/RTVIProvider';
 import { BotTypeProvider } from './providers/BotTypeProvider';
@@ -9,16 +10,19 @@ import { ConnectButton } from './components/ConnectButton';
 import { BotSelector } from './components/BotSelector';
 import { StatusDisplay } from './components/StatusDisplay';
 import { DebugDisplay } from './components/DebugDisplay';
+import { Transcriber } from './components/Transcriber';
+import RadialCard from './components/RadialCard';
 import './App.css';
 
-function BotVideo() {
+
+function BotAudioVisualizer() {
   const transportState = useRTVIClientTransportState();
   const isConnected = transportState !== 'disconnected';
 
   return (
     <div className="bot-container">
-      <div className="video-container">
-        {isConnected && <RTVIClientVideo participant="bot" fit="cover" />}
+      <div className="visualizer-container">
+        <RadialCard />
       </div>
     </div>
   );
@@ -34,7 +38,8 @@ function AppContent() {
       </div>
 
       <div className="main-content">
-        <BotVideo />
+        <BotAudioVisualizer />
+        <Transcriber />
       </div>
 
       <DebugDisplay />
@@ -45,11 +50,11 @@ function AppContent() {
 
 function App() {
   return (
-    <RTVIProvider>
-      <BotTypeProvider>
+    <BotTypeProvider>
+      <RTVIProvider>
         <AppContent />
-      </BotTypeProvider>
-    </RTVIProvider>
+      </RTVIProvider>
+    </BotTypeProvider>
   );
 }
 

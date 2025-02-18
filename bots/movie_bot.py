@@ -18,10 +18,22 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.services.cartesia import CartesiaTTSService
+from pipecat.services.deepgram import DeepgramTTSService
+
 from pipecat.services.gladia import GladiaSTTService
 from pipecat.services.openai import OpenAILLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat_flows import FlowArgs, FlowConfig, FlowManager, FlowResult
+from pipecat.processors.transcript_processor import TranscriptProcessor
+from pipecat.processors.frameworks.rtvi import (
+    RTVISpeakingProcessor,
+    RTVIUserTranscriptionProcessor,
+    RTVIBotTranscriptionProcessor,
+    RTVIBotLLMProcessor,
+    RTVIBotTTSProcessor,
+    RTVIMetricsProcessor,
+    FrameDirection
+)
 
 load_dotenv(override=True)
 
@@ -398,9 +410,10 @@ async def main():
         ),
     )
 
-    tts = CartesiaTTSService(
-        api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="c45bc5ec-dc68-4feb-8829-6e6b2748095d",  # Movieman voice
+    tts = DeepgramTTSService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
+        voice="aura-helios-en",
+        sample_rate=24000
     )
 
     stt = GladiaSTTService(
@@ -412,15 +425,34 @@ async def main():
     context = OpenAILLMContext()
     context_aggregator = llm.create_context_aggregator(context)
 
+    # Initialize RTVI processors
+    rtvi_speaking = RTVISpeakingProcessor()
+    rtvi_user_transcription = RTVIUserTranscriptionProcessor()
+    rtvi_bot_transcription = RTVIBotTranscriptionProcessor()
+    rtvi_bot_llm = RTVIBotLLMProcessor()
+    rtvi_bot_tts = RTVIBotTTSProcessor(direction=FrameDirection.UPSTREAM)
+    rtvi_metrics = RTVIMetricsProcessor()
+
+    # Initialize transcript processor for context
+    transcript = TranscriptProcessor()
+
     pipeline = Pipeline(
         [
-            transport.input(),  # Transport input
-            context_aggregator.user(),  # User responses
+            transport.input(),
+            rtvi_speaking,
             stt,  # STT
+            rtvi_user_transcription,  # Process user transcripts for RTVI
+            transcript.user(),  # Process user messages for context
+            context_aggregator.user(),  # User responses
             llm,  # LLM
+            rtvi_bot_llm,  # Process LLM responses for RTVI
             tts,  # TTS
+            rtvi_bot_tts,  # Process TTS for RTVI
+            rtvi_bot_transcription,  # Process bot transcripts for RTVI
             transport.output(),  # Transport output
+            transcript.assistant(),  # Process assistant messages for context
             context_aggregator.assistant(),  # Assistant responses
+            rtvi_metrics,  # Collect metrics
         ]
     )
 

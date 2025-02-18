@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useBotType } from '../providers/BotTypeProvider';
 
-export type BotType = 'intake' | 'movie';
+export type BotType = 'movie' | 'intake' | 'cv';
 
 export function BotSelector() {
   const { botType, setBotType } = useBotType();
@@ -14,8 +14,8 @@ export function BotSelector() {
   return (
     <div className="bot-selector">
       <select onChange={handleBotChange} value={botType}>
-        <option value="intake">Patient Intake Bot</option>
-        <option value="movie">Movie Explorer Bot</option>
+      <option value="movie">Movie Explorer Bot</option>
+      <option value="intake">Patient Intake Bot</option>
       </select>
     </div>
   );

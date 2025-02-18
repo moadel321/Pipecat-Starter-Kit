@@ -9,7 +9,7 @@ type BotTypeContextType = {
 const BotTypeContext = createContext<BotTypeContextType | undefined>(undefined);
 
 export function BotTypeProvider({ children }: { children: ReactNode }) {
-  const [botType, setBotType] = useState<BotType>('intake');
+  const [botType, setBotType] = useState<BotType>('movie');
 
   return (
     <BotTypeContext.Provider value={{ botType, setBotType }}>

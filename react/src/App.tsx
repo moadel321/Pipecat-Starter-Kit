@@ -39,7 +39,6 @@ function AppContent() {
 
       <div className="main-content">
         <BotAudioVisualizer />
-        <Transcriber />
       </div>
 
       <DebugDisplay />

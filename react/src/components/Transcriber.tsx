@@ -11,8 +11,6 @@ interface Message {
 
 export const Transcriber = () => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [currentBotWords, setCurrentBotWords] = useState<string[]>([]);
-  const [isLLMStreaming, setIsLLMStreaming] = useState(false);
 
   // Handle user transcriptions
   const handleUserTranscript = useCallback((data: TranscriptData) => {
@@ -27,53 +25,27 @@ export const Transcriber = () => {
     }
   }, []);
 
-  // Handle bot LLM streaming text
-  const handleBotLLMText = useCallback((data: BotLLMTextData) => {
-    console.log('Bot LLM text:', data);
-    if (isLLMStreaming) {
-      setCurrentBotWords(prev => [...prev, data.text]);
-    }
-  }, [isLLMStreaming]);
-
-  // Handle LLM start
-  const handleBotLLMStart = useCallback(() => {
-    console.log('Bot LLM started');
-    setIsLLMStreaming(true);
-    setCurrentBotWords([]);
-  }, []);
-
-  // Handle LLM stop
-  const handleBotLLMStop = useCallback(() => {
-    console.log('Bot LLM stopped');
-    setIsLLMStreaming(false);
-    // Add the complete message to the messages list
-    if (currentBotWords.length > 0) {
+  // Handle bot transcriptions
+  const handleBotTranscript = useCallback((data: BotLLMTextData) => {
+    console.log('Bot transcript:', data);
+    if (data.text?.trim()) {
       const timestamp = new Date().toISOString();
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: currentBotWords.join(' '),
+        content: data.text,
         timestamp
       }]);
-      setCurrentBotWords([]);
     }
-  }, [currentBotWords]);
-
-  // Handle TTS text streaming
-  const handleBotTTSText = useCallback((data: BotLLMTextData) => {
-    console.log('Bot TTS text:', data);
   }, []);
 
-  // Debug logging for messages and events
+  // Debug logging for messages
   useEffect(() => {
     console.log('Current messages:', messages);
   }, [messages]);
 
   // Register event listeners
   useRTVIClientEvent(RTVIEvent.UserTranscript, handleUserTranscript);
-  useRTVIClientEvent(RTVIEvent.BotLlmStarted, handleBotLLMStart);
-  useRTVIClientEvent(RTVIEvent.BotLlmStopped, handleBotLLMStop);
-  useRTVIClientEvent(RTVIEvent.BotLlmText, handleBotLLMText);
-  useRTVIClientEvent(RTVIEvent.BotTtsText, handleBotTTSText);
+  useRTVIClientEvent(RTVIEvent.BotTranscript, handleBotTranscript);
 
   return (
     <div className="w-full">
@@ -89,11 +61,6 @@ export const Transcriber = () => {
                 <p>{message.content}</p>
               </div>
             ))}
-            {currentBotWords.length > 0 && (
-              <div className="bot-message streaming">
-                <p>{currentBotWords.join(' ')}</p>
-              </div>
-            )}
           </div>
         </div>
       </div>

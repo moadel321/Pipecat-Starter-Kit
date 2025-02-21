@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useRTVIClientEvent } from '@pipecat-ai/client-react';
 import { RTVIEvent, BotLLMTextData, TranscriptData } from '@pipecat-ai/client-js';
 import './Transcriber.css';
@@ -12,45 +12,71 @@ interface Message {
 export const Transcriber = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentBotWords, setCurrentBotWords] = useState<string[]>([]);
+  const [isLLMStreaming, setIsLLMStreaming] = useState(false);
 
   // Handle user transcriptions
   const handleUserTranscript = useCallback((data: TranscriptData) => {
     console.log('User transcript:', data);
-    const timestamp = new Date().toISOString();
-    setMessages(prev => [...prev, {
-      role: 'user',
-      content: data.text,
-      timestamp
-    }]);
+    if (data.final) {
+      const timestamp = new Date().toISOString();
+      setMessages(prev => [...prev, {
+        role: 'user',
+        content: data.text,
+        timestamp
+      }]);
+    }
   }, []);
 
-  // Handle bot TTS text streaming
-  const handleBotTtsText = useCallback((data: BotLLMTextData) => {
-    console.log('Bot TTS chunk:', data);
-    setCurrentBotWords(prev => [...prev, data.text]);
-  }, []);
+  // Handle bot LLM streaming text
+  const handleBotLLMText = useCallback((data: BotLLMTextData) => {
+    console.log('Bot LLM text:', data);
+    if (isLLMStreaming) {
+      setCurrentBotWords(prev => [...prev, data.text]);
+    }
+  }, [isLLMStreaming]);
 
-  // Handle complete bot messages
-  const handleBotTranscript = useCallback((data: BotLLMTextData) => {
-    console.log('Bot transcript:', data);
-    const timestamp = new Date().toISOString();
-    setMessages(prev => [...prev, {
-      role: 'assistant',
-      content: data.text,
-      timestamp
-    }]);
-    // Reset current bot words after complete message
+  // Handle LLM start
+  const handleBotLLMStart = useCallback(() => {
+    console.log('Bot LLM started');
+    setIsLLMStreaming(true);
     setCurrentBotWords([]);
   }, []);
 
+  // Handle LLM stop
+  const handleBotLLMStop = useCallback(() => {
+    console.log('Bot LLM stopped');
+    setIsLLMStreaming(false);
+    // Add the complete message to the messages list
+    if (currentBotWords.length > 0) {
+      const timestamp = new Date().toISOString();
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: currentBotWords.join(' '),
+        timestamp
+      }]);
+      setCurrentBotWords([]);
+    }
+  }, [currentBotWords]);
+
+  // Handle TTS text streaming
+  const handleBotTTSText = useCallback((data: BotLLMTextData) => {
+    console.log('Bot TTS text:', data);
+  }, []);
+
+  // Debug logging for messages and events
+  useEffect(() => {
+    console.log('Current messages:', messages);
+  }, [messages]);
+
   // Register event listeners
   useRTVIClientEvent(RTVIEvent.UserTranscript, handleUserTranscript);
-  useRTVIClientEvent(RTVIEvent.BotTtsText, handleBotTtsText);
-  useRTVIClientEvent(RTVIEvent.BotTranscript, handleBotTranscript);
+  useRTVIClientEvent(RTVIEvent.BotLlmStarted, handleBotLLMStart);
+  useRTVIClientEvent(RTVIEvent.BotLlmStopped, handleBotLLMStop);
+  useRTVIClientEvent(RTVIEvent.BotLlmText, handleBotLLMText);
+  useRTVIClientEvent(RTVIEvent.BotTtsText, handleBotTTSText);
 
   return (
     <div className="w-full">
-
       <div className="p-4">
         <div className="transcriber-container">
           <div className="messages-container">

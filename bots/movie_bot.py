@@ -20,6 +20,9 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.services.cartesia import CartesiaTTSService
 from pipecat.services.deepgram import DeepgramTTSService
 
+from pipecat.services.rime import RimeTTSService
+
+
 from pipecat.services.gladia import GladiaSTTService
 from pipecat.services.openai import OpenAILLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
@@ -34,6 +37,8 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIMetricsProcessor,
     FrameDirection
 )
+
+
 
 load_dotenv(override=True)
 
@@ -410,17 +415,20 @@ async def main():
         ),
     )
 
-    tts = DeepgramTTSService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"),
-        voice="aura-helios-en",
-        sample_rate=24000
+    tts = RimeTTSService(
+        api_key=os.getenv("RIME_API_KEY", ""),
+        voice_id="rex",
     )
+
 
     stt = GladiaSTTService(
         api_key=os.getenv("GLADIA_API_KEY"),
     )
 
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4")
+    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4o-mini",
+        temperature=1.0
+    )
 
     context = OpenAILLMContext()
     context_aggregator = llm.create_context_aggregator(context)

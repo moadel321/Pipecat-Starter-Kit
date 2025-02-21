@@ -1,6 +1,6 @@
 python-dotenv
 fastapi[all]
 uvicorn
-pipecat-ai[daily,cartesia,openai,silero,gladia, assemblyai, deepgram, google, elevenlabs , playht]
+pipecat-ai[daily,cartesia,openai,silero,gladia, assemblyai, deepgram, google, elevenlabs , playht, rime]
 pipecat-ai-flows
 aiohttp

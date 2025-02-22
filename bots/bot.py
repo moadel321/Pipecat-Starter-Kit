@@ -27,6 +27,16 @@ from pipecat.services.openai import OpenAILLMContext, OpenAILLMContextFrame, Ope
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat.services.assemblyai import AssemblyAISTTService
 from pipecat.transcriptions.language import Language
+from pipecat.processors.transcript_processor import TranscriptProcessor
+from pipecat.processors.frameworks.rtvi import (
+    RTVISpeakingProcessor,
+    RTVIUserTranscriptionProcessor,
+    RTVIBotTranscriptionProcessor,
+    RTVIBotLLMProcessor,
+    RTVIBotTTSProcessor,
+    RTVIMetricsProcessor,
+    FrameDirection
+)
 
 from deepgram import LiveOptions
 from pipecat.services.deepgram import DeepgramSTTService
@@ -273,6 +283,7 @@ Remember to:
 - Acknowledge user inputs before processing them
 - Handle errors gracefully with helpful suggestions
 - Keep the conversation flowing naturally
+- Never output asterisks or other formatting or special characters
 
 Start by warmly introducing yourself and asking how you can help today. You can help with weather information, recipes, news updates, or assist with other tasks as they come up."""
             }
@@ -629,26 +640,41 @@ Would you like me to help you find another recipe?""",
                     ]
                 )
                 return
-                
-            # Format the news articles nicely
+            
+            # Add a system message to instruct the LLM to summarize the articles
+            context.add_message({
+                "role": "system",
+                "content": """Please summarize the following news articles in a concise and engaging way. For each article:
+1. Keep the title and source
+2. Provide a 1-2 sentence summary of the key points
+3. Avoid technical jargon and keep it conversational
+4. Include the URL for more details"""
+            })
+            
+            # Format articles for the LLM to summarize
             articles_text = "\n\n".join([
-                f"📰 {article['title']}\n"
+                f"Title: {article['title']}\n"
                 f"Source: {article['source']}\n"
-                f"Published: {article['published_at']}\n"
-                f"{article['description']}\n"
-                f"Read more: {article['url']}"
+                f"Description: {article['description']}\n"
+                f"URL: {article['url']}"
                 for article in articles
             ])
             
+            # Add the articles as user message for the LLM to process
+            context.add_message({
+                "role": "user",
+                "content": articles_text
+            })
+            
+            # Let the LLM process and summarize
+            await llm.queue_frame(OpenAILLMContextFrame(context), FrameDirection.DOWNSTREAM)
+            
+            # Add final instruction for response format
             await result_callback(
                 [
                     {
                         "role": "system",
-                        "content": f"""Here are the latest news articles about {args['query']}:
-
-{articles_text}
-
-Would you like me to search for news about another topic?""",
+                        "content": f"After providing the summarized news about {args['query']}, ask if they would like to explore another topic."
                     }
                 ]
             )
@@ -696,6 +722,17 @@ async def main():
         context = OpenAILLMContext(messages=messages)
         context_aggregator = llm.create_context_aggregator(context)
 
+        # Initialize RTVI processors
+        rtvi_speaking = RTVISpeakingProcessor()
+        rtvi_user_transcription = RTVIUserTranscriptionProcessor()
+        rtvi_bot_transcription = RTVIBotTranscriptionProcessor()
+        rtvi_bot_llm = RTVIBotLLMProcessor()
+        rtvi_bot_tts = RTVIBotTTSProcessor(direction=FrameDirection.DOWNSTREAM)
+        rtvi_metrics = RTVIMetricsProcessor()
+
+        # Initialize transcript processor for context
+        transcript = TranscriptProcessor()
+
         intake = IntakeProcessor(context)
         llm.register_function("verify_birthday", intake.verify_birthday)
         llm.register_function("get_weather", intake.get_weather)
@@ -723,18 +760,24 @@ async def main():
         pipeline = Pipeline(
             [
                 transport.input(),  # Transport input
+                rtvi_speaking,  # Speaking state
+                stt,  # STT
+                rtvi_user_transcription,  # Process user transcripts for RTVI
+                transcript.user(),  # Process user messages for context
                 context_aggregator.user(),  # User responses
-                stt,
                 llm,  # LLM
-                fl,  # Frame logger
+                rtvi_bot_llm,  # Process LLM responses for RTVI
                 tts,  # TTS
+                rtvi_bot_tts,  # Process TTS for RTVI
+                rtvi_bot_transcription,  # Process bot transcripts for RTVI
                 transport.output(),  # Transport output
+                transcript.assistant(),  # Process assistant messages for context
                 context_aggregator.assistant(),  # Assistant responses
-
+                rtvi_metrics,  # Collect metrics
             ]
         )
 
-        task = PipelineTask(pipeline, PipelineParams(allow_interruptions=False))
+        task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
 
         @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):

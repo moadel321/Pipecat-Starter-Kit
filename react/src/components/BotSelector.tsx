@@ -14,8 +14,8 @@ export function BotSelector() {
   return (
     <div className="bot-selector">
       <select onChange={handleBotChange} value={botType}>
+      <option value="intake">Personal Assistant Bot</option>
       <option value="movie">Movie Explorer Bot</option>
-      <option value="intake">Patient Intake Bot</option>
       </select>
     </div>
   );

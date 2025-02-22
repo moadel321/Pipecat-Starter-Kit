@@ -4,11 +4,16 @@
 .env.development.local
 .env.test.local
 .env.production.local
-patient-intake/.cursorrules
-patient-intake/.env
+bots/.env
+bots/.cursorrules
 
 delete-daily.py
 /bots/verify_key.py
 /bots/.env
 /bots/.cursorrules
 /bots/PIPECAT_INTEGRATION.MD
+.gitignore
+/VapiBlocks/
+/bots/Dockerfile
+/react/node_modules
+

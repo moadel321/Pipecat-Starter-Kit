@@ -316,6 +316,8 @@ flow_config: FlowConfig = {
 - Use get_upcoming_movies to see what's coming soon
 - Use end_conversation when they're done exploring
 
+Never output any astreiks or special characters in your output
+
 After showing details or recommendations, ask if they'd like to explore another movie or end the conversation.""",
                 }
             ],

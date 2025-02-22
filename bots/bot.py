@@ -8,6 +8,7 @@ import asyncio
 import os
 import sys
 import wave
+from typing import List, TypedDict, Union, Optional
 
 import aiohttp
 from dotenv import load_dotenv
@@ -16,7 +17,7 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import OutputAudioRawFrame
 from pipecat.services.gladia import GladiaSTTService
-
+from pipecat.services.rime import RimeTTSService
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -56,13 +57,111 @@ for file in sound_files:
         )
 
 
+class WeatherData(TypedDict):
+    temperature: float
+    feels_like: float
+    description: str
+    humidity: int
+    wind_speed: float
+
+class WeatherProcessor:
+    """Handles weather-related API calls using Open-Meteo."""
+    
+    def __init__(self):
+        self.base_url = "https://api.open-meteo.com/v1/forecast"
+            
+    async def get_weather(self, lat: float, lon: float, session: aiohttp.ClientSession) -> Optional[WeatherData]:
+        """Fetch current weather data for given coordinates."""
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code"
+        }
+        
+        try:
+            async with session.get(self.base_url, params=params) as response:
+                if response.status != 200:
+                    logger.error(f"Weather API Error: {response.status}")
+                    return None
+                    
+                data = await response.json()
+                current = data["current"]
+                
+                # Convert WMO weather codes to descriptions
+                weather_code = current["weather_code"]
+                description = self._get_weather_description(weather_code)
+                
+                return WeatherData(
+                    temperature=current["temperature_2m"],
+                    feels_like=current["apparent_temperature"],
+                    description=description,
+                    humidity=current["relative_humidity_2m"],
+                    wind_speed=current["wind_speed_10m"]
+                )
+        except Exception as e:
+            logger.error(f"Error getting weather: {e}")
+            return None
+            
+    def _get_weather_description(self, code: int) -> str:
+        """Convert WMO weather codes to human-readable descriptions."""
+        codes = {
+            0: "clear sky",
+            1: "mainly clear",
+            2: "partly cloudy",
+            3: "overcast",
+            45: "foggy",
+            48: "depositing rime fog",
+            51: "light drizzle",
+            53: "moderate drizzle",
+            55: "dense drizzle",
+            61: "slight rain",
+            63: "moderate rain",
+            65: "heavy rain",
+            71: "slight snow",
+            73: "moderate snow",
+            75: "heavy snow",
+            77: "snow grains",
+            80: "slight rain showers",
+            81: "moderate rain showers",
+            82: "violent rain showers",
+            85: "slight snow showers",
+            86: "heavy snow showers",
+            95: "thunderstorm",
+            96: "thunderstorm with slight hail",
+            99: "thunderstorm with heavy hail"
+        }
+        return codes.get(code, "unknown weather condition")
+
 class IntakeProcessor:
     def __init__(self, context: OpenAILLMContext):
         print(f"Initializing context from IntakeProcessor")
+        self.weather_processor = WeatherProcessor()  # No API key needed anymore
         context.add_message(
             {
                 "role": "system",
-                "content": "You are Jessica, an agent for a company called Tri-County Health Services. Your job is to collect important information from the user before their doctor visit. You're talking to Chad Bailey. You should address the user by their first name and be polite and professional. You're not a medical professional, so you shouldn't provide any advice. Keep your responses short. Your job is to collect information to give to a doctor. Don't make assumptions about what values to plug into functions. Ask for clarification if a user response is ambiguous. Start by introducing yourself. Then, ask the user to confirm their identity by telling you their birthday, including the year. When they answer with their birthday, call the verify_birthday function.",
+                "content": """You are Jessica, a friendly and helpful AI personal assistant. Your goal is to help users with various tasks while maintaining a conversational and engaging tone. Keep your responses concise but warm.
+
+Here's how you should use your available tools:
+
+1. Weather Information:
+   - When a user asks about the weather for a city, convert the city name to its coordinates
+   - Use the get_weather function with the exact latitude and longitude
+   - Format: latitude (-90 to 90), longitude (-180 to 180)
+   - Example: London = 51.5074, -0.1278
+
+2. Identity Verification:
+   - When a user provides their birthday in any format
+   - Use the verify_birthday function to confirm their identity
+   - If the format is unclear, politely ask for clarification
+
+Remember to:
+- Be conversational and friendly, using a natural tone
+- Ask clarifying questions when needed
+- Acknowledge user inputs before processing them
+- Handle errors gracefully with helpful suggestions
+- Keep the conversation flowing naturally
+
+Start by warmly introducing yourself and asking how you can help today. You can help with weather information or assist with other tasks as they come up."""
             }
         )
         context.set_tools(
@@ -80,6 +179,27 @@ class IntakeProcessor:
                                     "description": "The user's birthdate, including the year. The user can provide it in any format, ",
                                 }
                             },
+                        },
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get the current weather using coordinates",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "lat": {
+                                    "type": "number",
+                                    "description": "Latitude of the location (-90 to 90)"
+                                },
+                                "lon": {
+                                    "type": "number",
+                                    "description": "Longitude of the location (-180 to 180)"
+                                }
+                            },
+                            "required": ["lat", "lon"]
                         },
                     },
                 }
@@ -279,6 +399,33 @@ class IntakeProcessor:
         # will prevent adding anything to context or re-prompting
         await result_callback(None)
 
+    async def get_weather(
+        self, function_name, tool_call_id, args, llm, context, result_callback
+    ):
+        """Handle weather requests."""
+        async with aiohttp.ClientSession() as session:
+            weather = await self.weather_processor.get_weather(args["lat"], args["lon"], session)
+            
+            if not weather:
+                await result_callback(
+                    [
+                        {
+                            "role": "system",
+                            "content": f"I couldn't get the weather data for these coordinates. Please try again later.",
+                        }
+                    ]
+                )
+                return
+                
+            await result_callback(
+                [
+                    {
+                        "role": "system",
+                        "content": f"The current weather is {weather['description']} with a temperature of {weather['temperature']}°C (feels like {weather['feels_like']}°C). The humidity is {weather['humidity']}% and wind speed is {weather['wind_speed']} meters per second.",
+                    }
+                ]
+            )
+
 
 async def main():
     async with aiohttp.ClientSession() as session:
@@ -303,24 +450,16 @@ async def main():
             ),
         )
 
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
+        tts = RimeTTSService(
+            api_key=os.getenv("RIME_API_KEY", ""),
+            voice_id="rex",
         )
 
-        stt = AssemblyAISTTService(
-            api_key=os.getenv("ASSEMBLYAI_API_KEY"),
-            sample_rate=16000,
-            language=Language.EN
+        stt = GladiaSTTService(
+            api_key=os.getenv("GLADIA_API_KEY"),
         )
 
-
-        # tts = CartesiaTTSService(
-        #     api_key=os.getenv("CARTESIA_API_KEY"),
-        #     voice_id="846d6cb0-2301-48b6-9683-48f5618ea2f6",  # Spanish-speaking Lady
-        # )
-
-        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o-mini")
 
         messages = []
         context = OpenAILLMContext(messages=messages)
@@ -328,6 +467,7 @@ async def main():
 
         intake = IntakeProcessor(context)
         llm.register_function("verify_birthday", intake.verify_birthday)
+        llm.register_function("get_weather", intake.get_weather)
         llm.register_function(
             "list_prescriptions", intake.save_data, start_callback=intake.start_prescriptions
         )

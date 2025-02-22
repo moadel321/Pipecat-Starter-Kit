@@ -16,7 +16,6 @@ from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import OutputAudioRawFrame
-from pipecat.services.gladia import GladiaSTTService
 from pipecat.services.rime import RimeTTSService
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -28,6 +27,10 @@ from pipecat.services.openai import OpenAILLMContext, OpenAILLMContextFrame, Ope
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat.services.assemblyai import AssemblyAISTTService
 from pipecat.transcriptions.language import Language
+
+from deepgram import LiveOptions
+from pipecat.services.deepgram import DeepgramSTTService
+
 
 load_dotenv(override=True)
 
@@ -63,6 +66,103 @@ class WeatherData(TypedDict):
     description: str
     humidity: int
     wind_speed: float
+
+class NewsArticle(TypedDict):
+    title: str
+    description: str
+    source: str
+    url: str
+    published_at: str
+
+class NewsProcessor:
+    """Handles news-related API calls using NewsData.io."""
+    
+    def __init__(self, api_key: str):
+        self.base_url = "https://newsdata.io/api/1/latest"
+        self.api_key = api_key
+            
+    async def get_latest_news(self, query: str, session: aiohttp.ClientSession) -> Optional[List[NewsArticle]]:
+        """Fetch latest news articles for a given query."""
+        params = {
+            "apikey": self.api_key,
+            "q": query,
+            "language": "en"  # English articles only
+        }
+        
+        try:
+            async with session.get(self.base_url, params=params) as response:
+                if response.status != 200:
+                    logger.error(f"News API Error: {response.status}")
+                    return None
+                    
+                data = await response.json()
+                if not data.get("results"):
+                    return None
+                    
+                articles = []
+                for article in data["results"][:5]:  # Limit to top 5 articles
+                    articles.append(NewsArticle(
+                        title=article["title"],
+                        description=article.get("description", "No description available"),
+                        source=article["source_id"],
+                        url=article["link"],
+                        published_at=article["pubDate"]
+                    ))
+                
+                return articles
+        except Exception as e:
+            logger.error(f"Error getting news: {e}")
+            return None
+
+class RecipeData(TypedDict):
+    name: str
+    category: str
+    instructions: str
+    ingredients: List[str]
+    measurements: List[str]
+
+class RecipeProcessor:
+    """Handles recipe-related API calls using TheMealDB."""
+    
+    def __init__(self):
+        self.base_url = "https://www.themealdb.com/api/json/v1/1"
+            
+    async def get_recipe(self, meal_name: str, session: aiohttp.ClientSession) -> Optional[RecipeData]:
+        """Fetch recipe data for a given meal name."""
+        params = {"s": meal_name}
+        
+        try:
+            async with session.get(f"{self.base_url}/search.php", params=params) as response:
+                if response.status != 200:
+                    logger.error(f"Recipe API Error: {response.status}")
+                    return None
+                    
+                data = await response.json()
+                if not data["meals"]:
+                    return None
+                    
+                meal = data["meals"][0]
+                
+                # Extract ingredients and measurements
+                ingredients = []
+                measurements = []
+                for i in range(1, 21):  # TheMealDB has up to 20 ingredients
+                    ing = meal.get(f"strIngredient{i}")
+                    meas = meal.get(f"strMeasure{i}")
+                    if ing and ing.strip():
+                        ingredients.append(ing)
+                        measurements.append(meas if meas and meas.strip() else "to taste")
+                
+                return RecipeData(
+                    name=meal["strMeal"],
+                    category=meal["strCategory"],
+                    instructions=meal["strInstructions"],
+                    ingredients=ingredients,
+                    measurements=measurements
+                )
+        except Exception as e:
+            logger.error(f"Error getting recipe: {e}")
+            return None
 
 class WeatherProcessor:
     """Handles weather-related API calls using Open-Meteo."""
@@ -135,7 +235,9 @@ class WeatherProcessor:
 class IntakeProcessor:
     def __init__(self, context: OpenAILLMContext):
         print(f"Initializing context from IntakeProcessor")
-        self.weather_processor = WeatherProcessor()  # No API key needed anymore
+        self.weather_processor = WeatherProcessor()
+        self.recipe_processor = RecipeProcessor()
+        self.news_processor = NewsProcessor(os.getenv("NEWSDATA_API_KEY"))
         context.add_message(
             {
                 "role": "system",
@@ -149,7 +251,18 @@ Here's how you should use your available tools:
    - Format: latitude (-90 to 90), longitude (-180 to 180)
    - Example: London = 51.5074, -0.1278
 
-2. Identity Verification:
+2. Recipe Information:
+   - When a user asks for a recipe, use the get_recipe function with the meal name
+   - If the recipe isn't found, suggest trying a different meal name
+   - Help format the recipe nicely in your response
+
+3. News Information:
+   - When a user asks for news about a topic, use the get_news function with their query
+   - Present the news articles in a clear, organized format
+   - Include titles, brief descriptions, and sources
+   - Offer to search for more news if needed
+
+4. Identity Verification:
    - When a user provides their birthday in any format
    - Use the verify_birthday function to confirm their identity
    - If the format is unclear, politely ask for clarification
@@ -161,7 +274,7 @@ Remember to:
 - Handle errors gracefully with helpful suggestions
 - Keep the conversation flowing naturally
 
-Start by warmly introducing yourself and asking how you can help today. You can help with weather information or assist with other tasks as they come up."""
+Start by warmly introducing yourself and asking how you can help today. You can help with weather information, recipes, news updates, or assist with other tasks as they come up."""
             }
         )
         context.set_tools(
@@ -200,6 +313,40 @@ Start by warmly introducing yourself and asking how you can help today. You can 
                                 }
                             },
                             "required": ["lat", "lon"]
+                        },
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_recipe",
+                        "description": "Get recipe instructions for a meal",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "meal_name": {
+                                    "type": "string",
+                                    "description": "The name of the meal to get the recipe for"
+                                }
+                            },
+                            "required": ["meal_name"]
+                        },
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_news",
+                        "description": "Get the latest news articles about a topic",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The topic or keywords to search for in the news"
+                                }
+                            },
+                            "required": ["query"]
                         },
                     },
                 }
@@ -426,6 +573,86 @@ Start by warmly introducing yourself and asking how you can help today. You can 
                 ]
             )
 
+    async def get_recipe(
+        self, function_name, tool_call_id, args, llm, context, result_callback
+    ):
+        """Handle recipe requests."""
+        async with aiohttp.ClientSession() as session:
+            recipe = await self.recipe_processor.get_recipe(args["meal_name"], session)
+            
+            if not recipe:
+                await result_callback(
+                    [
+                        {
+                            "role": "system",
+                            "content": f"I couldn't find a recipe for {args['meal_name']}. Would you like to try searching for a different meal?",
+                        }
+                    ]
+                )
+                return
+                
+            # Format the recipe nicely
+            ingredients_list = [f"- {m} {i}" for i, m in zip(recipe["ingredients"], recipe["measurements"])]
+            ingredients_text = "\n".join(ingredients_list)
+            
+            await result_callback(
+                [
+                    {
+                        "role": "system",
+                        "content": f"""Here's the recipe for {recipe['name']} (Category: {recipe['category']}):
+
+Ingredients:
+{ingredients_text}
+
+Instructions:
+{recipe['instructions']}
+
+Would you like me to help you find another recipe?""",
+                    }
+                ]
+            )
+
+    async def get_news(
+        self, function_name, tool_call_id, args, llm, context, result_callback
+    ):
+        """Handle news requests."""
+        async with aiohttp.ClientSession() as session:
+            articles = await self.news_processor.get_latest_news(args["query"], session)
+            
+            if not articles:
+                await result_callback(
+                    [
+                        {
+                            "role": "system",
+                            "content": f"I couldn't find any news articles about '{args['query']}'. Would you like to try a different topic?",
+                        }
+                    ]
+                )
+                return
+                
+            # Format the news articles nicely
+            articles_text = "\n\n".join([
+                f"📰 {article['title']}\n"
+                f"Source: {article['source']}\n"
+                f"Published: {article['published_at']}\n"
+                f"{article['description']}\n"
+                f"Read more: {article['url']}"
+                for article in articles
+            ])
+            
+            await result_callback(
+                [
+                    {
+                        "role": "system",
+                        "content": f"""Here are the latest news articles about {args['query']}:
+
+{articles_text}
+
+Would you like me to search for news about another topic?""",
+                    }
+                ]
+            )
+
 
 async def main():
     async with aiohttp.ClientSession() as session:
@@ -452,11 +679,15 @@ async def main():
 
         tts = RimeTTSService(
             api_key=os.getenv("RIME_API_KEY", ""),
-            voice_id="rex",
+            voice_id="Abbie",
         )
 
-        stt = GladiaSTTService(
-            api_key=os.getenv("GLADIA_API_KEY"),
+        stt = DeepgramSTTService(
+            api_key=os.getenv("DEEPGRAM_API_KEY"),
+            live_options=LiveOptions(
+                language="en-US",  # Specific regional variant
+                model="nova-2-general"
+            )
         )
 
         llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o-mini")
@@ -479,6 +710,12 @@ async def main():
         )
         llm.register_function(
             "list_visit_reasons", intake.save_data, start_callback=intake.start_visit_reasons
+        )
+        llm.register_function(
+            "get_recipe", intake.get_recipe
+        )
+        llm.register_function(
+            "get_news", intake.get_news
         )
 
         fl = FrameLogger("LLM Output")

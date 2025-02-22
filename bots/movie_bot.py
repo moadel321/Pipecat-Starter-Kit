@@ -17,8 +17,9 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.cartesia import CartesiaTTSService
-from pipecat.services.deepgram import DeepgramTTSService
+from pipecat.services.deepgram import DeepgramSTTService
+from deepgram import LiveOptions
+
 
 from pipecat.services.rime import RimeTTSService
 
@@ -419,12 +420,16 @@ async def main():
 
     tts = RimeTTSService(
         api_key=os.getenv("RIME_API_KEY", ""),
-        voice_id="rex",
+        voice_id="Abbie",
     )
 
 
-    stt = GladiaSTTService(
-        api_key=os.getenv("GLADIA_API_KEY"),
+    stt = DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
+        live_options=LiveOptions(
+            language="en-US",  # Specific regional variant
+            model="nova-2-general"
+        )
     )
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"),
@@ -440,7 +445,7 @@ async def main():
     rtvi_user_transcription = RTVIUserTranscriptionProcessor()
     rtvi_bot_transcription = RTVIBotTranscriptionProcessor()
     rtvi_bot_llm = RTVIBotLLMProcessor()
-    rtvi_bot_tts = RTVIBotTTSProcessor(direction=FrameDirection.UPSTREAM)
+    rtvi_bot_tts = RTVIBotTTSProcessor(direction=FrameDirection.DOWNSTREAM)
     rtvi_metrics = RTVIMetricsProcessor()
 
     # Initialize transcript processor for context
@@ -448,8 +453,8 @@ async def main():
 
     pipeline = Pipeline(
         [
-            transport.input(),
-            rtvi_speaking,
+            transport.input(),  # Transport input
+            rtvi_speaking,  # Speaking state
             stt,  # STT
             rtvi_user_transcription,  # Process user transcripts for RTVI
             transcript.user(),  # Process user messages for context
@@ -468,7 +473,7 @@ async def main():
 
     task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
 
-    # Initialize flow manager
+    # Initialize flow manager with RTVI context
     flow_manager = FlowManager(
         task=task,
         llm=llm,

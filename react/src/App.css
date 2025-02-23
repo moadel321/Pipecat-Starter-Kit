@@ -60,9 +60,27 @@ button:disabled {
   padding: 20px;
   margin-bottom: 20px;
 }
-.flex, .p-4 {
+.flex, .transcript-container {
   background-color: #000000;
+  max-height: calc(100vh - 600px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #e9e9e9 #000000;
 }
+
+.flex::-webkit-scrollbar, .transcript-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.flex::-webkit-scrollbar-track, .transcript-container::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.flex::-webkit-scrollbar-thumb, .transcript-container::-webkit-scrollbar-thumb {
+  background-color: #e9e9e9;
+  border-radius: 4px;
+}
+
 .bot-container {
   display: flex;
   flex-direction: column;

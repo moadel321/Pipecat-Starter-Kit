@@ -285,7 +285,11 @@ Remember to:
 - Keep the conversation flowing naturally
 - Never output asterisks or other formatting or special characters
 
-Start by warmly introducing yourself and asking how you can help today. You can help with weather information, recipes, news updates, or assist with other tasks as they come up."""
+Start by warmly introducing yourself and asking how you can help today. You can help with weather information, recipes, news updates, or assist with other tasks as they come up.
+Never include asterisks or any markdown formatting in your output
+
+"""
+            
             }
         )
         context.set_tools(

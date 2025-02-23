@@ -12,6 +12,7 @@ import { StatusDisplay } from './components/StatusDisplay';
 import { DebugDisplay } from './components/DebugDisplay';
 import { Transcriber } from './components/Transcriber';
 import RadialCard from './components/RadialCard';
+import { TranscriptProvider } from './providers/TranscriptProvider';
 import './App.css';
 
 
@@ -50,7 +51,9 @@ function App() {
   return (
     <BotTypeProvider>
       <RTVIProvider>
-        <AppContent />
+        <TranscriptProvider>
+          <AppContent />
+        </TranscriptProvider>
       </RTVIProvider>
     </BotTypeProvider>
   );

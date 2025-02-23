@@ -8,9 +8,12 @@ import asyncio
 import os
 import sys
 import wave
-from typing import List, TypedDict, Union, Optional
+import json
+from datetime import datetime
+from typing import List, TypedDict, Optional
 
 import aiohttp
+import sentry_sdk
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -22,11 +25,8 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.logger import FrameLogger
-from pipecat.services.cartesia import CartesiaTTSService
 from pipecat.services.openai import OpenAILLMContext, OpenAILLMContextFrame, OpenAILLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
-from pipecat.services.assemblyai import AssemblyAISTTService
-from pipecat.transcriptions.language import Language
 from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVISpeakingProcessor,
@@ -37,6 +37,7 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIMetricsProcessor,
     FrameDirection
 )
+from pipecat.processors.metrics.sentry import SentryMetrics
 
 from deepgram import LiveOptions
 from pipecat.services.deepgram import DeepgramSTTService
@@ -46,6 +47,8 @@ load_dotenv(override=True)
 
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
+
+BASE_FILENAME = "/var/www/conversations/pipecat_conversation_"
 
 sounds = {}
 sound_files = [
@@ -244,14 +247,14 @@ class WeatherProcessor:
 
 class IntakeProcessor:
     def __init__(self, context: OpenAILLMContext):
-        print(f"Initializing context from IntakeProcessor")
+        print("Initializing context from IntakeProcessor")
         self.weather_processor = WeatherProcessor()
         self.recipe_processor = RecipeProcessor()
         self.news_processor = NewsProcessor(os.getenv("NEWSDATA_API_KEY"))
         context.add_message(
             {
                 "role": "system",
-                "content": """You are Jessica, a friendly and helpful AI personal assistant. Your goal is to help users with various tasks while maintaining a conversational and engaging tone. Keep your responses concise but warm.
+                "content": """You are Jessica, a friendly and helpful AI personal assistant. Avoid special characters and markdown formatting. Your goal is to help users with various tasks while maintaining a conversational and engaging tone. Keep your responses concise but warm.
 
 Here's how you should use your available tools:
 
@@ -284,6 +287,7 @@ Remember to:
 - Handle errors gracefully with helpful suggestions
 - Keep the conversation flowing naturally
 - Never output asterisks or other formatting or special characters
+- You are talking to the user over a phone call, so don't use markdown formatting
 
 Start by warmly introducing yourself and asking how you can help today. You can help with weather information, recipes, news updates, or assist with other tasks as they come up.
 Never include asterisks or any markdown formatting in your output
@@ -294,6 +298,18 @@ Never include asterisks or any markdown formatting in your output
         )
         context.set_tools(
             [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "save_conversation",
+                        "description": "Save the current conversation. Use this function to persist the current conversation to external storage.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        },
+                    },
+                },
                 {
                     "type": "function",
                     "function": {
@@ -428,7 +444,7 @@ Never include asterisks or any markdown formatting in your output
             )
 
     async def start_prescriptions(self, function_name, llm, context):
-        print(f"!!! doing start prescriptions")
+        print("!!! doing start prescriptions")
         # Move on to allergies
         context.set_tools(
             [
@@ -464,9 +480,9 @@ Never include asterisks or any markdown formatting in your output
                 "content": "Next, ask the user if they have any allergies. Once they have listed their allergies or confirmed they don't have any, call the list_allergies function.",
             }
         )
-        print(f"!!! about to await llm process frame in start prescrpitions")
+        print("!!! about to await llm process frame in start prescrpitions")
         await llm.queue_frame(OpenAILLMContextFrame(context), FrameDirection.DOWNSTREAM)
-        print(f"!!! past await process frame in start prescriptions")
+        print("!!! past await process frame in start prescriptions")
 
     async def start_allergies(self, function_name, llm, context):
         print("!!! doing start allergies")
@@ -573,7 +589,7 @@ Never include asterisks or any markdown formatting in your output
                     [
                         {
                             "role": "system",
-                            "content": f"I couldn't get the weather data for these coordinates. Please try again later.",
+                            "content": "I couldn't get the weather data for these coordinates. Please try again later.",
                         }
                     ]
                 )
@@ -683,6 +699,38 @@ Would you like me to help you find another recipe?""",
                 ]
             )
 
+    async def save_conversation(
+        self, function_name, tool_call_id, args, llm, context, result_callback
+    ):
+        """Save the current conversation to a file."""
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+        filename = f"{BASE_FILENAME}{timestamp}.json"
+        logger.debug(f"writing conversation to {filename}\n{json.dumps(context.messages, indent=4)}")
+        try:
+            with open(filename, "w") as file:
+                messages = context.get_messages_for_persistent_storage()
+                # remove the last message, which is the instruction we just gave to save the conversation
+                messages.pop()
+                json.dump(messages, file, indent=2)
+            await result_callback(
+                [
+                    {
+                        "role": "system",
+                        "content": f"I've saved our conversation to {filename}. Is there anything else I can help you with?",
+                    }
+                ]
+            )
+        except Exception as e:
+            logger.error(f"Error saving conversation: {e}")
+            await result_callback(
+                [
+                    {
+                        "role": "system",
+                        "content": "I apologize, but I encountered an error while trying to save our conversation. Would you like to try again?",
+                    }
+                ]
+            )
+
 
 async def main():
     async with aiohttp.ClientSession() as session:
@@ -693,6 +741,12 @@ async def main():
             sys.exit(1)
 
         logger.info(f"Using room URL: {daily_room_url}")
+
+        # Initialize Sentry
+        sentry_sdk.init(
+            dsn=os.getenv("SENTRY_DSN"),
+            traces_sample_rate=1.0,
+        )
 
         # Configure the Daily transport
         transport = DailyTransport(
@@ -710,17 +764,23 @@ async def main():
         tts = RimeTTSService(
             api_key=os.getenv("RIME_API_KEY", ""),
             voice_id="Abbie",
+            metrics=SentryMetrics(),
         )
 
         stt = DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY"),
             live_options=LiveOptions(
-                language="en-US",  # Specific regional variant
+                language="en-US",
                 model="nova-2-general"
-            )
+            ),
+            metrics=SentryMetrics(),
         )
 
-        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o-mini")
+        llm = OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"), 
+            model="gpt-4o-mini",
+            metrics=SentryMetrics(),
+        )
 
         messages = []
         context = OpenAILLMContext(messages=messages)
@@ -740,6 +800,7 @@ async def main():
         intake = IntakeProcessor(context)
         llm.register_function("verify_birthday", intake.verify_birthday)
         llm.register_function("get_weather", intake.get_weather)
+        llm.register_function("save_conversation", intake.save_conversation)
         llm.register_function(
             "list_prescriptions", intake.save_data, start_callback=intake.start_prescriptions
         )
@@ -781,13 +842,33 @@ async def main():
             ]
         )
 
-        task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
+        task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True, enable_metrics=True))
 
         @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
             await transport.capture_participant_transcription(participant["id"])
             print(f"Context is: {context}")
             await task.queue_frames([OpenAILLMContextFrame(context)])
+
+        @transport.event_handler("on_participant_left")
+        async def on_participant_left(transport, participant, reason):
+            logger.info(f"Participant {participant['id']} left: {reason}")
+            
+            # Save the conversation before ending
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+            filename = f"{BASE_FILENAME}{timestamp}.json"
+            logger.debug(f"Saving final conversation to {filename}")
+            
+            try:
+                with open(filename, "w") as file:
+                    messages = context.get_messages_for_persistent_storage()
+                    json.dump(messages, file, indent=2)
+                logger.info(f"Successfully saved conversation to {filename}")
+            except Exception as e:
+                logger.error(f"Error saving conversation on participant left: {e}")
+            
+            # Cancel the pipeline task to stop processing
+            await task.cancel()
 
         runner = PipelineRunner()
 

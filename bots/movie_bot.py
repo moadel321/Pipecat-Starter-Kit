@@ -420,7 +420,7 @@ async def main():
 
     tts = RimeTTSService(
         api_key=os.getenv("RIME_API_KEY", ""),
-        voice_id="Abbie",
+        voice_id="Cove",
     )
 
 
@@ -434,7 +434,7 @@ async def main():
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"),
         model="gpt-4o-mini",
-        temperature=1.0
+        temperature=0.3
     )
 
     context = OpenAILLMContext()

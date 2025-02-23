@@ -77,3 +77,8 @@
     opacity: 0.3;
   }
 } 
+
+.visualizer-container{
+  animation: none !important;
+  background-color: #000;
+}

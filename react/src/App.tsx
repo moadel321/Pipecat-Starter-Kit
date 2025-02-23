@@ -32,7 +32,6 @@ function AppContent() {
   return (
     <div className="app">
       <div className="status-bar">
-        <StatusDisplay />
         <BotSelector />
         <ConnectButton />
       </div>

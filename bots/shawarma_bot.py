@@ -536,8 +536,13 @@ async def main():
             audio_out_sample_rate=24000,
             transcription_enabled=False,
             vad_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-            vad_audio_passthrough=True
+            vad_analyzer=SileroVADAnalyzer(
+                sample_rate=24000,
+                threshold=0.7,
+                min_speech_duration_ms=250,
+                min_silence_duration_ms=100
+            ),
+            vad_audio_passthrough=True,
         ),
     )
 
@@ -547,12 +552,9 @@ async def main():
         voice_id="IES4nrmZdUBHByLBde0P",
         model="eleven_multilingual_v2",
         params=ElevenLabsTTSService.InputParams(
-            stability=0.7,
-        similarity_boost=0.8,
-        style=0.5,
-        use_speaker_boost=True
+            stability=0.7, similarity_boost=0.8, style=0.5, use_speaker_boost=True
+        ),
     )
-)
 
     # Configure service
     stt = AzureSTTService(
@@ -569,20 +571,34 @@ async def main():
 
     context = OpenAILLMContext()
     context_aggregator = llm.create_context_aggregator(context)
+        # Initialize RTVI processors
+    rtvi_speaking = RTVISpeakingProcessor()
+    rtvi_user_transcription = RTVIUserTranscriptionProcessor()
+    rtvi_bot_transcription = RTVIBotTranscriptionProcessor()
+    rtvi_bot_llm = RTVIBotLLMProcessor()
+    rtvi_bot_tts = RTVIBotTTSProcessor(direction=FrameDirection.DOWNSTREAM)
+    rtvi_metrics = RTVIMetricsProcessor()
 
+        # Initialize transcript processor for context
     transcript = TranscriptProcessor()
 
     pipeline = Pipeline(
         [
             transport.input(),  # Transport input
+            rtvi_speaking,  # Speaking state
             stt,  # STT
+            rtvi_user_transcription,  # Process user transcripts for RTVI
             transcript.user(),  # Process user messages for context
             context_aggregator.user(),  # User responses
             llm,  # LLM
+            rtvi_bot_llm,  # Process LLM responses for RTVI
             tts,  # TTS
+            rtvi_bot_tts,  # Process TTS for RTVI
+            rtvi_bot_transcription,  # Process bot transcripts for RTVI
             transport.output(),  # Transport output
             transcript.assistant(),  # Process assistant messages for context
             context_aggregator.assistant(),  # Assistant responses
+            rtvi_metrics,  # Collect metrics
         ]
     )
 

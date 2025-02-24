@@ -756,8 +756,14 @@ async def main():
             DailyParams(
                 audio_out_enabled=True,
                 vad_enabled=True,
-                vad_analyzer=SileroVADAnalyzer(),
                 transcription_enabled=True,
+                vad_analyzer=SileroVADAnalyzer(
+                    sample_rate=16000,
+                    threshold=0.7,
+                    min_speech_duration_ms=250,
+                    min_silence_duration_ms=100
+                ),
+            vad_audio_passthrough=True,
             ),
         )
 

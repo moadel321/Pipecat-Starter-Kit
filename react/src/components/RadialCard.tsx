@@ -24,9 +24,19 @@ const RadialCard: React.FC = () => {
     setBars((prevBars) => {
       const newBars = prevBars.map((_, index) => {
         const angleMultiplier = Math.sin((index / prevBars.length) * Math.PI * 2);
-        const amplifiedVolume = Math.min(volume * 4 * (1 + Math.random() * 0.5), 1);
-        const height = amplifiedVolume * 100 * (0.5 + Math.abs(angleMultiplier) * 0.5);
-        return height;
+        
+        // When volume is at maximum (close to 1), we want uniform length
+        // Otherwise, keep the dynamic behavior with reduced variation
+        if (volume > 0.9) {
+          // When volume is very high, all bars extend to the same length (100)
+          return 100;
+        } else {
+          // At lower volumes, maintain some variation but less pronounced
+          const randomFactor = 1 + (Math.random() * 0.3); // Reduced randomness
+          const amplifiedVolume = Math.min(volume * 4 * randomFactor, 1);
+          const variationFactor = 0.8 + (Math.abs(angleMultiplier) * 0.2); // Less angle-based variation
+          return amplifiedVolume * 100 * variationFactor;
+        }
       });
       
       if (volume > 0.01) {  // Only log when there's significant volume
@@ -42,10 +52,15 @@ const RadialCard: React.FC = () => {
   };
 
   return (
-    <div className="border text-center justify-items-center p-4 rounded-2xl">
+    <div className="border text-center justify-items-center p-4 rounded-2xl overflow-hidden">
       <div
-        className="flex items-center justify-center h-full relative"
-        style={{ width: "300px", height: "300px" }}
+        className="flex items-center justify-center h-full relative overflow-hidden"
+        style={{ 
+          width: "300px", 
+          height: "300px",
+          overflowY: "hidden", /* Explicitly disable vertical scrollbar */
+          overflowX: "hidden"  /* Explicitly disable horizontal scrollbar */
+        }}
       >
         <motion.div
           animate={{
@@ -62,7 +77,12 @@ const RadialCard: React.FC = () => {
           width="100%"
           height="100%"
           viewBox="0 0 300 300"
-          style={{ position: "absolute", top: 0, left: 0 }}
+          style={{ 
+            position: "absolute", 
+            top: 0, 
+            left: 0,
+            overflow: "visible" /* Ensure SVG content is visible but doesn't cause scrollbars */
+          }}
         >
           {bars.map((height, index) => {
             const angle = (index / bars.length) * 360;

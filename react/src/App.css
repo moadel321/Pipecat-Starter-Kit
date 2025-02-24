@@ -149,3 +149,8 @@ button:disabled {
   background-color: #f44336;
   color: white;
 }
+
+
+.visualizer-container { 
+  background-color: #000000;
+}

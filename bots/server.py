@@ -171,7 +171,14 @@ async def start_bot(request: Request):
         # Create a new bot process with the updated environment
         try:
             # Select the appropriate bot script based on type
-            bot_script = "movie_bot.py" if bot_type == "movie" else "bot.py"
+            if bot_type == "movie":
+                bot_script = "movie_bot.py"
+            elif bot_type == "shawarma":
+                bot_script = "shawarma_bot.py"
+            elif bot_type == "simple":
+                bot_script = "simple.py"
+            else:
+                bot_script = "bot.py"
             
             proc = subprocess.Popen(
                 [sys.executable, bot_script],
@@ -361,7 +368,15 @@ async def rtvi_connect(request: Request):
         # Create a new bot process with the updated environment
         try:
             # Select the appropriate bot script based on type
-            bot_script = "movie_bot.py" if bot_type == "movie" else "bot.py"
+            if bot_type == "movie":
+                bot_script = "movie_bot.py"
+            elif bot_type == "shawarma":
+                bot_script = "shawarma_bot.py"
+            elif bot_type == "simple":
+                bot_script = "simple.py"
+            else:
+                bot_script = "bot.py"
+                
             logger.info(f"Selected bot script: {bot_script}")
             
             proc = subprocess.Popen(

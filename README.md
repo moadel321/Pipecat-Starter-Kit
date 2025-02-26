@@ -95,7 +95,7 @@ FAST_API_PORT=7860
 
 ## **Additional Environment Variables**
 
-Depending on the bot type you're using, you may need to configure these additional variables:
+Depending on the bot type you're using, you may need to configure  additional variables:
 
 
 ## Debugging Tools

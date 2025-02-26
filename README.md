@@ -101,7 +101,7 @@ Depending on the bot type you're using, you may need to configure  additional va
 ## Debugging Tools
 
 - **Pipeline Debugging**: Log pipeline activities for troubleshooting.
-- **Sentry  Statistics**: Monitor WebRTC connection stats.
+- **Sentry  Statistics**: Monitor TTFB for the different services you're using 
 
 ## Contributing
 
@@ -114,7 +114,7 @@ We welcome contributions! Please follow these steps:
 
 ## License
 
-This project is licensed under the BSD 2-Clause License. See the LICENSE file for details.
+This project is licensed under the BSD 2-Clause License.
 
 ---
 

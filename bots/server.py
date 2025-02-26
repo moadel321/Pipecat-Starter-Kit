@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 from contextlib import asynccontextmanager
+import time
 
 import aiohttp
 from fastapi import FastAPI, HTTPException, Request
@@ -19,7 +20,7 @@ from loguru import logger
 import http.client as http_client
 import logging
 
-from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper, DailyRoomParams
+from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper, DailyRoomParams, DailyRoomProperties
 
 MAX_BOTS_PER_ROOM = 1
 
@@ -313,18 +314,30 @@ async def rtvi_connect(request: Request):
                 detail="DAILY_API_KEY environment variable is not set"
             )
 
-        # Create a new room
+        # Create a new room with expiry time
         try:
+            # Define room expiry time (e.g., 30 minutes)
+            ROOM_EXPIRY_TIME = 10 * 60  # 10 minutes in seconds
+            
+            # Create room properties with expiry time
+            room_properties = DailyRoomProperties(
+                exp=time.time() + ROOM_EXPIRY_TIME,  # Room expires in 10 minutes
+                start_audio_off=False,
+                start_video_off=True,
+                eject_at_room_exp=True,  # Eject participants when room expires
+                enable_prejoin_ui=False  #  Skip the prejoin UI
+            )
+            
+            # Create room parameters with properties
             room_params = DailyRoomParams(
                 privacy="public",
-                properties={
-                    "start_audio_off": False,
-                    "start_video_off": True,
-                }
+                properties=room_properties
             )
+            
+            # Create the room
             room = await daily_helpers["rest"].create_room(room_params)
             daily_room_url = room.url
-            logger.info(f"Created room: {daily_room_url}")
+            logger.info(f"Created room: {daily_room_url} with expiry in {ROOM_EXPIRY_TIME/60} minutes")
             
             # Store the bot type for this room
             room_bot_types[daily_room_url] = bot_type

@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
+
 from pipecat.frames.frames import OutputAudioRawFrame
 from pipecat.services.rime import RimeTTSService
 from pipecat.pipeline.pipeline import Pipeline
@@ -759,11 +761,13 @@ async def main():
                 transcription_enabled=True,
                 vad_analyzer=SileroVADAnalyzer(
                     sample_rate=16000,
-                    threshold=0.7,
-                    min_speech_duration_ms=250,
-                    min_silence_duration_ms=100
+                    params=VADParams(
+                        threshold=0.5,
+                        min_speech_duration_ms=250,
+                        min_silence_duration_ms=100
+                    )
                 ),
-            vad_audio_passthrough=True,
+                vad_audio_passthrough=True,
             ),
         )
 

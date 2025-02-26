@@ -1,28 +1,51 @@
-# Pipecat Implementation Guide: Real-time Voice AI with React
+# Pipecat Starter Kit: Real-time Voice AI with Pipecat
 
-This guide is complementary to the official [Pipecat documentation](https://docs.pipecat.ai). While the official docs cover the fundamentals, this guide focuses on practical implementation details, common pitfalls, and real-world optimization techniques.
+Welcome to the Pipecat Starter Kit! This repository is designed to help you quickly get started with the Pipecat Framework, providing a comprehensive boilerplate for building real-time voice AI applications. Whether you're new to Pipecat or looking to streamline your development process, this starter kit has you covered.
+
+## Overview
+
+Pipecat can be complex for newcomers, but this starter kit simplifies the process by integrating essential features and services into a single package. Here's what you'll find:
+
+- **Sentry for Metrics Logging**: Monitor and log application metrics seamlessly.
+- **Transcription Streaming**: Real-time transcription streaming to the frontend.
+- **Back-Channeling**: Enhance conversational flow with back-channeling capabilities.
+- **Function Calling**: Execute functions dynamically within the conversation.
+- **Multilingual Support**: Engage users in multiple languages.
+- **Vapi Compoenents**: Extra rizz
+
+
+The backend leverages Pipecat Flows for  conversation management, while the frontend is built using the Pipecat React SDK.
 
 ## Quick Start
 
+Follow these steps to set up your environment and start developing:
+
+### Backend Setup
+
 ```bash
-# Backend setup
 cd bots
 python -m venv venv
 source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
-cp .env.example .env  # Then edit with your API keys
+cp .env.example .env  # Edit with your API keys
 
-# Frontend setup
+# Start the server using UV
+uv run python server.py
+```
+
+### Frontend Setup
+
+```bash
 cd react
 npm install
 npm run dev
 ```
 
-## Architecture Deep Dive
+## Architecture
 
-### Backend Pipeline Architecture
+### Backend
 
-The backend uses a modular pipeline architecture for real-time audio processing:
+The backend is structured around a modular pipeline architecture, ensuring minimal latency and efficient processing:
 
 ```python
 pipeline = [
@@ -39,13 +62,7 @@ pipeline = [
 ]
 ```
 
-Key insights:
-- The pipeline is ordered for minimal latency
-- Each processor runs in its own async task
-- Frame processing is non-blocking
-- Interruptions are handled gracefully
-
-### Frontend Real-time Components
+### Frontend
 
 The React frontend uses a layered approach for real-time audio visualization and transcription:
 
@@ -59,90 +76,11 @@ The React frontend uses a layered approach for real-time audio visualization and
 </RTVIProvider>
 ```
 
-## Performance Optimization
-
-### Backend Optimizations
-
-1. **Pipeline Buffering**
-   - Keep buffer sizes small (≤100ms) for real-time responsiveness
-   - Use ring buffers for audio processing to prevent memory growth
-   ```python
-   buffer_size = int(sample_rate * 0.1)  # 100ms buffer
-   ```
-
-2. **Voice Activity Detection**
-   - Silero VAD is CPU-efficient but accurate
-   - Pre-load model on startup to avoid runtime delays
-   ```python
-   vad_analyzer = SileroVADAnalyzer(
-       threshold=0.5,  # Adjust based on environment noise
-       min_speech_duration_ms=250,
-       min_silence_duration_ms=100
-   )
-   ```
-
-3. **Memory Management**
-   - Clear message context periodically
-   - Implement backpressure in the pipeline
-   ```python
-   if len(context.messages) > MAX_CONTEXT_LENGTH:
-       context.messages = context.messages[-CONTEXT_WINDOW:]
-   ```
-
-### Frontend Optimizations
-
-1. **Audio Visualization**
-   - Use requestAnimationFrame for smooth rendering
-   - Implement frequency band smoothing
-   ```typescript
-   const smoothingFactor = 0.4;
-   bandValue = prevValue + (newValue - prevValue) * smoothingFactor;
-   ```
-
-2. **Transcript Rendering**
-   - Virtualize long message lists
-   - Debounce rapid updates
-   ```typescript
-   const debouncedUpdate = useDebounce(updateTranscript, 16);
-   ```
-
-## Common Pitfalls and Solutions
-
-1. **WebRTC Connection Issues**
-   ```typescript
-   // Always handle disconnections gracefully
-   useEffect(() => {
-     const handleDisconnect = async () => {
-       await cleanup();
-       scheduleReconnect();
-     };
-     client.on('disconnected', handleDisconnect);
-     return () => client.off('disconnected', handleDisconnect);
-   }, []);
-   ```
-
-2. **Audio Context Initialization**
-   ```typescript
-   // Must be triggered by user interaction
-   const initAudio = async () => {
-     const audioContext = new AudioContext();
-     await audioContext.resume();
-   };
-   ```
-
-3. **Pipeline Backpressure**
-   ```python
-   # Implement backpressure to prevent memory issues
-   async def process_frame(self, frame: Frame) -> Frame:
-       if self.queue.qsize() > MAX_QUEUE_SIZE:
-           logger.warning("Pipeline backpressure: dropping frame")
-           return None
-       return await self.queue.put(frame)
-   ```
 
 ## Environment Setup
 
-Required environment variables:
+Ensure you have the following environment variables configured:
+
 ```bash
 # API Keys
 OPENAI_API_KEY=your_key_here
@@ -155,60 +93,19 @@ DAILY_ROOM_URL=your_room_url  # Optional, will create if not provided
 FAST_API_PORT=7860
 ```
 
+## **Additional Environment Variables**
+
+Depending on the bot type you're using, you may need to configure these additional variables:
+
+
 ## Debugging Tools
 
-1. **Pipeline Debugging**
-   ```python
-   logger.add("pipeline.log", 
-              level="DEBUG",
-              format="{time} | {level} | {message}",
-              rotation="1 day")
-   ```
-
-2. **Frontend Debug Mode**
-   ```typescript
-   const DEBUG = process.env.NODE_ENV === 'development';
-   if (DEBUG) {
-     window.rtviClient = client;  // Expose for console debugging
-   }
-   ```
-
-3. **WebRTC Statistics**
-   ```typescript
-   const getConnectionStats = async () => {
-     const stats = await transport.getStats();
-     console.table(stats);
-   };
-   ```
-
-## Production Deployment
-
-1. **Docker Setup**
-   ```dockerfile
-   # Multi-stage build for smaller image
-   FROM python:3.11-slim as builder
-   COPY requirements.txt .
-   RUN pip install --user -r requirements.txt
-
-   FROM python:3.11-slim
-   COPY --from=builder /root/.local /root/.local
-   COPY . .
-   
-   CMD ["python", "server.py"]
-   ```
-
-2. **Health Checks**
-   ```python
-   @app.get("/health")
-   async def health_check():
-       return {
-           "status": "healthy",
-           "pipeline_active": len(bot_procs) > 0,
-           "memory_usage": psutil.Process().memory_info().rss / 1024 / 1024
-       }
-   ```
+- **Pipeline Debugging**: Log pipeline activities for troubleshooting.
+- **Sentry  Statistics**: Monitor WebRTC connection stats.
 
 ## Contributing
+
+We welcome contributions! Please follow these steps:
 
 1. Fork the repository
 2. Create a feature branch
@@ -217,8 +114,9 @@ FAST_API_PORT=7860
 
 ## License
 
-BSD 2-Clause License - see LICENSE file for details
+This project is licensed under the BSD 2-Clause License. See the LICENSE file for details.
 
 ---
 
-For more detailed information about specific components or advanced usage patterns, please refer to the official [Pipecat documentation](https://docs.pipecat.ai). 
+For more detailed information about specific components or advanced usage patterns, please refer to the official [Pipecat documentation](https://docs.pipecat.ai).
+
